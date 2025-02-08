@@ -2,6 +2,7 @@
 import amqp from 'amqplib';
 import WebSocket from 'ws';
 import { Call } from '../ocpp/messages.js';
+import { randomUUID } from 'crypto';
 
 export class RabbitMQService {
   private connection: amqp.Connection;
@@ -46,10 +47,12 @@ export class RabbitMQService {
     } else if (action === 'SEND_COMMAND') {
       const { clientId, command, details } = payload;
       const client = this.clients.get(clientId);
-      const ws = client.ws;
+      const ws = client?.ws;
 
-      const call = new Call(details.uniqueMessageId, command, {
-        idTag: clientId,
+      const msgId = randomUUID().replaceAll('-', '').slice(0, 7)
+
+      const call = new Call(msgId, command, {
+        idTag: "12345678900987654321",
         connectorId: details?.connectorId ?? 0,
       });
 

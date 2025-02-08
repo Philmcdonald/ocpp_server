@@ -42,9 +42,11 @@ export const routes = {
       handler: async (_payload: any) => {
         console.log("StartTransaction received\n", _payload);
         return {
-            status: "Accepted",
-            transactionId: Math.floor(Math.random() * 1000000),
-            currentTime: new Date().toISOString(),
+          idTagInfo: {
+            parentIdTag: '12345678900987654321',
+            status: "Accepted"
+          },
+          transactionId: Math.floor(Math.random() * 1000000)
         };
       },
     },

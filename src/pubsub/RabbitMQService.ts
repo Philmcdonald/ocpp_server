@@ -1,17 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import amqp from 'amqplib';
-import WebSocket from 'ws';
 import { Call } from '../ocpp/messages.js';
 import { randomUUID } from 'crypto';
+import { redisService } from './RedisService.js';
+import WebSocket from 'ws';
 
 export class RabbitMQService {
   private connection: amqp.Connection;
   private channel: amqp.Channel;
-  private clients: Map<string, WebSocket>;
+  private clientSockets: Map<string, WebSocket>; // Store WebSocket instances
 
-  async connect(ocppClients: Map<string, WebSocket>): Promise<void> {
-    this.clients = ocppClients;
-    this.connection = await amqp.connect('amqp://localhost');
+  constructor(clientSockets: Map<string, WebSocket>) {
+    this.clientSockets = clientSockets;
+  }
+
+  async connect(): Promise<void> {
+    this.connection = await amqp.connect('amqp://admin:admin@localhost:5672'); // Include username & password
     this.channel = await this.connection.createChannel();
 
     console.log('RabbitMQ connected');
@@ -31,32 +35,30 @@ export class RabbitMQService {
   async handleCommand(action: string, payload: any): Promise<void> {
     if (action === 'DISCONNECT_CLIENT') {
       const { clientId } = payload;
-      if (this.clients.has(clientId)) {
-        const ws = this.clients.get(clientId);
+      const ws = this.clientSockets.get(clientId);
+
+      if (ws) {
         ws.close();
-        this.clients.delete(clientId);
+        this.clientSockets.delete(clientId); // Remove from memory
+        await redisService.removeClient(clientId);
         console.log(`Client ${clientId} disconnected`);
         await this.sendMessage('ocpp_responses', { action, status: 'success' });
       } else {
         await this.sendMessage('ocpp_responses', {
           action,
           status: 'error',
-          message: 'Client not found',
+          message: 'Client not found or already disconnected',
         });
       }
     } else if (action === 'SEND_COMMAND') {
+      console.log("SEND_COMMAND")
       const { clientId, command, details } = payload;
-      const client = this.clients.get(clientId);
-      const ws = client?.ws;
+      const ws = this.clientSockets.get(clientId);
 
-      const msgId = randomUUID().replaceAll('-', '').slice(0, 7)
+      const msgId = randomUUID().replaceAll('-', '').slice(0, 7);
+      const call = new Call(msgId, command, details);
 
-      const call = new Call(msgId, command, {
-        idTag: "12345678900987654321",
-        connectorId: details?.connectorId ?? 0,
-      });
-
-      if (ws) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(call.toJson());
         console.log(`Command sent to client ${clientId}`);
         await this.sendMessage('ocpp_responses', { action, status: 'success' });
@@ -64,7 +66,7 @@ export class RabbitMQService {
         await this.sendMessage('ocpp_responses', {
           action,
           status: 'error',
-          message: 'Client not found',
+          message: 'Client not connected',
         });
       }
     }

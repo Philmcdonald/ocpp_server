@@ -1,158 +1,103 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Import necessary modules
 
 import WebSocket, { WebSocketServer } from 'ws';
-import { v4 as uuid } from 'uuid';
 import {
   Call,
   CallResult,
   CallError,
-  MessageTypeId,
   unpack,
 } from './ocpp/messages.js';
 import { NotImplementedError, OCPPError } from './ocpp/exceptions.js';
 import { createRouteMap, RouteConfig } from './ocpp/routing.js';
 import { routes } from './ocpp-routes.js';
 import { RabbitMQService } from './pubsub/RabbitMQService.js';
-
-// Define Connector interface
-interface Connector {
-  id: number | string;
-  status: string;
-  errorCode: string;
-  timestamp: string;
-  uniqueMessageId: string; // Added uniqueId to track the specific notification
-}
+import { redisService } from './pubsub/RedisService.js';
 
 class OCPPServer {
   private wss: WebSocketServer;
-  private clients: Map<
-    string,
-    {
-      ws: WebSocket;
-      chargePointModel: string;
-      chargePointVendor: string;
-      connectors: Connector[];
-    }
-  >;
   private routes: Map<string, RouteConfig>;
   public readonly status: 'Ready' | 'Booting' = 'Booting';
   private rabbitMQ: RabbitMQService;
+  private clientSockets = new Map<string, WebSocket>(); // Store WebSocket instances in memory
 
   constructor(port: number) {
     this.wss = new WebSocketServer({ port });
-    this.clients = new Map();
     this.routes = createRouteMap(routes);
 
     this.wss.on('connection', this.handleConnection.bind(this));
     console.log(`OCPP Server is running on port ${port}`);
     this.status = 'Ready';
 
-    this.rabbitMQ = new RabbitMQService();
-    this.rabbitMQ.connect(this.clients);
+    this.rabbitMQ = new RabbitMQService(this.clientSockets);
+    this.rabbitMQ.connect();
   }
 
-  // Send a message to a specific client
-  public sendToClient(
-    clientId: string,
-    message: Call | CallResult | CallError,
-  ): void {
-    const client = this.clients.get(clientId);
-    const ws = client.ws;
-
-    if (ws) {
-      const preparedMsg =
-        message instanceof Call || message instanceof CallResult
-          ? message.toJson()
-          : JSON.stringify(message);
+  public async sendToClient(clientId: string, message: Call | CallResult | CallError): Promise<void> {
+    const ws = this.clientSockets.get(clientId); // Retrieve WebSocket from memory
+    if (ws?.readyState === WebSocket.OPEN) {
+      const preparedMsg = message instanceof Call || message instanceof CallResult
+        ? message.toJson()
+        : JSON.stringify(message);
       ws.send(preparedMsg);
     } else {
-      console.error(
-        `Failed to send message: Client ${clientId} not found or connection closed`,
-      );
+      console.error(`Failed to send message: Client ${clientId} not found or disconnected`);
     }
   }
 
-  // Broadcast a message to all connected clients
-  public broadcastMessage(message: Call | CallResult | CallError): void {
-    this.clients.forEach((client) => {
-      const ws = client.ws;
-      if (ws.readyState === WebSocket.OPEN) {
-        const preparedMsg =
-          message instanceof Call || message instanceof CallResult
-            ? message.toJson()
-            : JSON.stringify(message);
+  public async broadcastMessage(message: Call | CallResult | CallError): Promise<void> {
+    const clients = await redisService.getAllClients();
+    clients.forEach(client => {
+      const ws = this.clientSockets.get(client.id); // Retrieve WebSocket from memory
+      if (ws?.readyState === WebSocket.OPEN) {
+        const preparedMsg = message instanceof Call || message instanceof CallResult
+          ? message.toJson()
+          : JSON.stringify(message);
         ws.send(preparedMsg);
       }
     });
   }
 
-  // Get all connected clients
-  public getConnectedClients(): {
-    clientId: string;
-    chargePointModel: string;
-    chargePointVendor: string;
-    connectors: Connector[];
-  }[] {
-    const clients = Array.from(this.clients.entries()).map(
-      ([clientId, client]) => ({
-        clientId,
-        chargePointModel: client.chargePointModel,
-        chargePointVendor: client.chargePointVendor,
-        connectors: client.connectors,
-      }),
-    );
-
-    return clients;
+  public async getConnectedClients() {
+    return await redisService.getAllClients();
   }
 
-  private async handleConnection(ws: WebSocket): Promise<void> {
-    const clientId = uuid();
-    this.clients.set(clientId, {
-      ws,
-      chargePointModel: '',
-      chargePointVendor: '',
-      connectors: [],
-    });
-    console.log(`New client connected: ${clientId}`);
+  private async handleConnection(ws: WebSocket, request: any): Promise<void> {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+
+    if (pathSegments.length < 2) {
+      console.error(`Invalid connection URL: ${request.url}`);
+      ws.close();
+      return;
+    }
+
+    const [orgId, clientId] = pathSegments;
+    
+    console.log(`New client connected: orgId=${orgId}, clientId=${clientId}`);
+
+    // Store WebSocket instance in memory
+    this.clientSockets.set(clientId, ws);
+
+    // Save client info to Redis without ws
+    await redisService.saveClientInfo(clientId, { chargePointModel: '', chargePointVendor: '', connectors: [] });
 
     ws.on('message', (data) => this.handleMessage(clientId, data));
     ws.on('close', () => this.handleDisconnection(clientId));
   }
 
-  private async handleMessage(
-    clientId: string,
-    data: WebSocket.Data,
-  ): Promise<void> {
+  private async handleMessage(clientId: string, data: WebSocket.Data): Promise<void> {
     try {
       const message = unpack(data.toString());
-
       if (message instanceof Call) {
-        if (Call.messageTypeId === MessageTypeId.Call) {
-          await this.handleCall(clientId, message as Call);
-          const payload = {
-            uniqueId: message.uniqueId,
-            ...message.payload,
-          };
-          this.updateClient(clientId, payload);
-
-          // Check if the call is a StatusNotification and update connectors
-          if (message.action === 'StatusNotification') {
-            this.updateConnectorStatus(clientId, message.payload, message.uniqueId);
-          }
-
-          this.sendConnectedClientsToQueue();
+        await redisService.logOCPPEvent(clientId, 'REQUEST', message);
+        if (message.action === 'StatusNotification') {
+          await this.updateConnectorStatus(clientId, message.payload, message.uniqueId);
         }
-      } else if (message instanceof CallResult) {
-        if (CallResult.messageTypeId === MessageTypeId.CallResult) {
-          console.log(`Received CALLRESULT from client ${clientId}\n`, message);
-        }
-      } else if (message instanceof CallError) {
-        if (CallError.messageTypeId === MessageTypeId.CallError) {
-          console.log(`Received CALLERROR from client ${clientId}`);
-        }
+        await this.handleCall(clientId, message);
+      } else if (message instanceof CallResult || message instanceof CallError) {
+        await redisService.logOCPPEvent(clientId, 'RESPONSE', message);
       } else {
         throw new OCPPError('Unsupported message type');
       }
@@ -161,120 +106,58 @@ class OCPPServer {
     }
   }
 
-  // New method to update connector status
-  private updateConnectorStatus(clientId: string, payload: any, uniqueId: string): void {
-    const client = this.clients.get(clientId);
+  private async updateConnectorStatus(clientId: string, payload: any, uniqueId: string): Promise<void> {
+    const client = await redisService.getClientInfo(clientId);
     if (!client) return;
-  
-    const { 
-      connectorId, 
-      status, 
-      errorCode, 
-      timestamp,
-    } = payload;
-    
-    // Find existing connector or create new one
-    const existingConnectorIndex = client.connectors.findIndex(
-      (connector) => connector.id === connectorId
-    );
-  
-    const connectorUpdate: Connector = {
-      id: connectorId,
-      status,
-      errorCode,
-      timestamp,
-      uniqueMessageId: uniqueId, // Include uniqueId in the connector object
-    };
-  
-    if (existingConnectorIndex !== -1) {
-      // Update existing connector
-      client.connectors[existingConnectorIndex] = connectorUpdate;
-    } else {
-      // Add new connector
-      client.connectors.push(connectorUpdate);
-    }
-  
-    // Update the client in the map
-    this.clients.set(clientId, client);
+
+    const { connectorId, status, errorCode, timestamp } = payload;
+    const connectorUpdate = { id: connectorId, status, errorCode, timestamp, uniqueMessageId: uniqueId };
+    client.connectors = [...client.connectors.filter(c => c.id !== connectorId), connectorUpdate];
+    await redisService.saveClientInfo(clientId, client);
+
+    await redisService.publishEvent('ocpp:connector_status', { clientId, connectorId, status, errorCode, timestamp });
+    console.log(`Connector status updated for client ${clientId}, connector ${connectorId}`);
   }
 
   async sendConnectedClientsToQueue() {
-    const connectedClients = this.getConnectedClients();
-
-    await this.rabbitMQ.sendMessage('ocpp_connected_clients', {
-      action: 'GET_CONNECTED_CLIENTS',
-      data: connectedClients,
-    });
+    const connectedClients = await redisService.getAllClients();
+    await this.rabbitMQ.sendMessage('ocpp_connected_clients', { action: 'GET_CONNECTED_CLIENTS', data: connectedClients });
   }
 
   private async handleCall(clientId: string, call: Call): Promise<void> {
     const action = call.action;
-
     if (!this.routes.has(action)) {
       throw new NotImplementedError(`Action '${action}' is not implemented`);
     }
 
-    const handlerConfig = this.routes.get(action);
-
     try {
-      const result = await handlerConfig.handler(call.payload);
-      const callResult: CallResult = new CallResult(call.uniqueId, result);
-
-      const payload = {
-        uniqueId: call.uniqueId,
-        ...call.payload,
-      };
-      this.updateClient(clientId, payload);
-      this.sendConnectedClientsToQueue();
-
-      this.sendToClient(clientId, callResult);
+      const result = await this.routes.get(action).handler(call.payload);
+      const callResult = new CallResult(call.uniqueId, result);
+      await this.updateClient(clientId, call.payload);
+      await this.sendConnectedClientsToQueue();
+      await this.sendToClient(clientId, callResult);
     } catch (error) {
-      const callError: CallError = {
-        uniqueId: call.uniqueId,
-        errorCode: 'InternalError',
-        errorDescription: error.message,
-        errorDetails: {},
-      } as CallError;
-
-      this.sendToClient(clientId, callError);
+      await this.sendToClient(clientId, new CallError(call.uniqueId, 'InternalError', error.message, {}));
     }
   }
 
-  public updateClient(clientId: string, props: { [key: string]: any }): void {
-    if (this.clients.has(clientId)) {
-      // Retrieve the client data
-      let clientData = this.clients.get(clientId);
-
-      if (clientData) {
-        // Update the client data
-        clientData = {
-          ...clientData,
-          ...props,
-        };
-
-        // Update the Map with the modified data
-        this.clients.set(clientId, clientData);
-
-        // Log the update
-        console.log({
-          message: `Updated properties for client ${clientId}`,
-          level: 'normal',
-        });
-      }
+  public async updateClient(clientId: string, props: { [key: string]: any }): Promise<void> {
+    const clientData = await redisService.getClientInfo(clientId);
+    if (clientData) {
+      await redisService.saveClientInfo(clientId, { ...clientData, ...props });
+      console.log(`Updated properties for client ${clientId}`);
     } else {
-      // Log if the client key does not exist
-      console.warn({ message: `Client with key ${clientId} not found.` });
+      console.warn(`Client ${clientId} not found.`);
     }
   }
 
-  private handleDisconnection(clientId: string): void {
-    this.clients.delete(clientId);
+  private async handleDisconnection(clientId: string): Promise<void> {
+    this.clientSockets.delete(clientId); // Remove WebSocket from memory
+    await redisService.removeClient(clientId);
     console.log(`Client disconnected: ${clientId}`);
   }
 }
 
-// Start the OCPP server on port 8080
 const _server = new OCPPServer(8080);
 console.log('Server is', _server.status);
-
 export default _server;

@@ -43,7 +43,7 @@ export const routes = {
         console.log("StartTransaction received\n", _payload);
         return {
           idTagInfo: {
-            parentIdTag: '12345678900987654321',
+            parentIdTag: _payload?.idTag,
             status: "Accepted"
           },
           transactionId: Math.floor(Math.random() * 1000000)
@@ -66,6 +66,12 @@ export const routes = {
         return {
             status: "Accepted"
         };
+      },
+    },
+    MeterValues: {
+      handler: async (_payload: any) => {
+        console.log("MeterValues received\n", _payload);
+        return {};
       },
     },
     DiagnosticsStatusNotification: {

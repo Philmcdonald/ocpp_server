@@ -22,7 +22,7 @@ class OCPPServer {
   private rabbitMQ: RabbitMQService;
   private clientSockets = new Map<string, WebSocket>(); // Store WebSocket instances in memory
 
-  constructor(port: number) {
+  constructor(port: string | number) {
     this.wss = new WebSocketServer({ port });
     this.routes = createRouteMap(routes);
 
@@ -158,6 +158,6 @@ class OCPPServer {
   }
 }
 
-const _server = new OCPPServer(8080);
+const _server = new OCPPServer(process.env.PORT || 8080);
 console.log('Server is', _server.status);
 export default _server;

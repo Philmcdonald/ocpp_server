@@ -15,7 +15,8 @@ export class RabbitMQService {
   }
 
   async connect(): Promise<void> {
-    this.connection = await amqp.connect('amqp://admin:admin@localhost:5672'); // Include username & password
+    const connectionStr = process.env.AMQP_CONNECTION_STR || 'localhost';
+    this.connection = await amqp.connect(connectionStr); // Include username & password
     this.channel = await this.connection.createChannel();
 
     console.log('RabbitMQ connected');

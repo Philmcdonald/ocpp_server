@@ -43,7 +43,7 @@ jobs:
           echo "ECS_SERVICE=${{ secrets.ECS_SERVICE }}" >> $GITHUB_ENV
 
       - name: Download env file from S3
-        run: aws s3 cp s3://charging-prod-envs/ocpp.env .env
+        run: aws s3 cp s3://charging-prod-envs/ocpp.env .env && cat .env
 
       - name: Build and push Docker image
         run: |

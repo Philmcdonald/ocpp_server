@@ -167,5 +167,4 @@ class OCPPServer {
 
 const _server = new OCPPServer(process.env.PORT || 8080);
 console.log('Server is', _server.status);
-console.log('Server Port is', process.env.PORT);
 export default _server;

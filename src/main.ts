@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import express from 'express';
 import WebSocket, { WebSocketServer } from 'ws';
 import {
   Call,
@@ -19,7 +20,7 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 
-console.log(process.env)
+const PORT = process.env.PORT || 8080
 
 class OCPPServer {
   private wss: WebSocketServer;
@@ -28,12 +29,12 @@ class OCPPServer {
   private rabbitMQ: RabbitMQService;
   private clientSockets = new Map<string, WebSocket>(); // Store WebSocket instances in memory
 
-  constructor(port: string | number) {
-    this.wss = new WebSocketServer({ port });
+  constructor(server: any) {
+    this.wss = new WebSocketServer({ server });
     this.routes = createRouteMap(routes);
 
     this.wss.on('connection', this.handleConnection.bind(this));
-    console.log(`OCPP Server is running on port ${port}`);
+    // console.log(`OCPP Server is running on port ${port}`);
     this.status = 'Ready';
 
     this.rabbitMQ = new RabbitMQService(this.clientSockets);
@@ -164,6 +165,31 @@ class OCPPServer {
   }
 }
 
-const _server = new OCPPServer(process.env.PORT || 8080);
+
+// Create an Express app
+const app = express();
+
+// Define a GET route
+app.get('/', async (_req, res) => {
+  try {
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to GET' });
+  }
+});
+app.get('/health', async (_req, res) => {
+  try {
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to GET' });
+  }
+});
+
+// Start HTTP server and WebSocket server on the same port
+const server = app.listen(PORT, () => {
+  console.log(`HTTP Server running on port ${PORT}`);
+});
+
+const _server = new OCPPServer(server);
 console.log('Server is', _server.status);
 export default _server;

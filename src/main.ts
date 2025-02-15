@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -14,6 +15,12 @@ import { createRouteMap, RouteConfig } from './ocpp/routing.js';
 import { routes } from './ocpp-routes.js';
 import { RabbitMQService } from './pubsub/RabbitMQService.js';
 import { redisService } from './pubsub/RedisService.js';
+
+import dotenv from 'dotenv'
+dotenv.config()
+
+
+console.log(process.env)
 
 class OCPPServer {
   private wss: WebSocketServer;

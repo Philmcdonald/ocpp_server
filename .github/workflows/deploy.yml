@@ -49,6 +49,6 @@ jobs:
         run: |
           docker build -t ${{ secrets.ECR_REPOSITORY_URL }}:latest --push .
 
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment
+    #   - name: Deploy to ECS
+    #     run: |
+    #       aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --force-new-deployment

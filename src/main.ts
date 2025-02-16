@@ -87,6 +87,7 @@ class OCPPServer {
     // Store WebSocket instance in memory
     this.clientSockets.set(clientId, ws);
 
+    console.log("Before Redis await")
     // Save client info to Redis without ws
     await redisService.saveClientInfo(clientId, { chargePointModel: '', chargePointVendor: '', connectors: [] });
     const clients = await redisService.getAllClients()

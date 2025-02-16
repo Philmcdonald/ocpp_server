@@ -46,8 +46,8 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
-            sudo docker pull $ECR_REPOSITORY_URL:latest
             sudo docker stop ocpp-server || true
             sudo docker rm ocpp-server || true
             sudo docker image prune -a -f
+            sudo docker pull $ECR_REPOSITORY_URL:latest
             sudo docker run -d --name ocpp-server -p 8080:8080 ${{ secrets.ECR_REPOSITORY_URL }}:latest

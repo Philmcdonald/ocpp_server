@@ -89,6 +89,8 @@ class OCPPServer {
 
     // Save client info to Redis without ws
     await redisService.saveClientInfo(clientId, { chargePointModel: '', chargePointVendor: '', connectors: [] });
+    const clients = await redisService.getAllClients()
+    console.log(clients)
 
     ws.on('message', (data) => this.handleMessage(clientId, data));
     ws.on('close', () => this.handleDisconnection(clientId));

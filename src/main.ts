@@ -95,6 +95,7 @@ class OCPPServer {
   }
 
   private async handleMessage(clientId: string, data: WebSocket.Data): Promise<void> {
+    console.log(`Raw message from ${clientId}:`, data.toString());
     try {
       const message = unpack(data.toString());
       if (message instanceof Call) {
@@ -132,6 +133,7 @@ class OCPPServer {
   }
 
   private async handleCall(clientId: string, call: Call): Promise<void> {
+    console.log("Call function invoked. Sending CallResult")
     const action = call.action;
     if (!this.routes.has(action)) {
       throw new NotImplementedError(`Action '${action}' is not implemented`);

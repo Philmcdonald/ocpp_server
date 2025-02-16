@@ -46,7 +46,7 @@ export const routes = {
             parentIdTag: _payload?.idTag,
             status: "Accepted"
           },
-          transactionId: Math.floor(Math.random() * 1000000)
+          transactionId: _payload?.idTag?.split('')?.reverse().join(''),
         };
       },
     },

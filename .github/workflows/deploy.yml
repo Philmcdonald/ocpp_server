@@ -46,12 +46,6 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
-            sudo apt update -y
-            sudo apt install -y docker.io awscli
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            sudo usermod -aG docker ubuntu
-            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
             sudo docker pull $ECR_REPOSITORY_URL:latest
             sudo docker stop ocpp-server || true
             sudo docker rm ocpp-server || true

@@ -46,9 +46,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
-            sudo docker stop ocpp-server || true
-            sudo docker rm ocpp-server || true
-            sudo docker image prune -a -f
-            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY_URL }}
-            sudo docker pull ${{ secrets.ECR_REPOSITORY_URL }}:latest
-            sudo docker run -d --name ocpp-server -p 8080:8080 ${{ secrets.ECR_REPOSITORY_URL }}:latest
+            chmod +x /home/ubuntu/deploy.sh
+            export AWS_REGION="${{ secrets.AWS_REGION }}"
+            export ECR_REPOSITORY_URL="${{ secrets.ECR_REPOSITORY_URL }}"
+            /home/ubuntu/deploy.sh

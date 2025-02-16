@@ -55,4 +55,4 @@ jobs:
             sudo docker pull $ECR_REPOSITORY_URL:latest
             sudo docker stop ocpp-server || true
             sudo docker rm ocpp-server || true
-            sudo docker run -d --name ocpp-server -p 8080:8080 --env-file .env $ECR_REPOSITORY_URL:latest
+            sudo docker run -d --name ocpp-server -p 8080:8080 $ECR_REPOSITORY_URL:latest

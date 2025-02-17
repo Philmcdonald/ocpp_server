@@ -18,6 +18,7 @@ export const routes = {
       handler: async (payload: any) => {
         console.log("Authorize payload received:", payload);
         return {
+          parentIdTag: payload?.idTag,
           status: "Accepted"
         };
       },

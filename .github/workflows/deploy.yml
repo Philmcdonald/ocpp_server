@@ -20,3 +20,18 @@ jobs:
           docker login -u philip408 -p ${{ secrets.DOCKER_HUB_TOKEN }}
           docker push philip408/occp_server:latest
 
+  BUILD_AND_PUSH_TO_AWS_ECR:
+    runs-on:  ubuntu-latest
+    steps:
+      - name: code checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Download env file from S3
+        run: aws s3 cp s3://charging-prod-envs/ocpp.env .env

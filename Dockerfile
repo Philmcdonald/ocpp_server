@@ -1,4 +1,4 @@
-FROM node:18
+FROM node:18-alpine
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN npm install --legacy-peer-deps
 
 COPY . .
 
-COPY ocpp.env /app/.env
+COPY ./ocpp.env /app/.env
 
 RUN npm run build
 

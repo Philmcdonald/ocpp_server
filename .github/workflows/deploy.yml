@@ -5,6 +5,7 @@ on:
     branches: [main]
 env:
   ECR_REPO: ocpp_server
+  AWS_REGION: eu-north-1
 
 jobs:
   DEPLOY_TO_DOCKER_HUB:
@@ -46,7 +47,7 @@ jobs:
           secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           registry: ${{ secrets.REGISTRY }}
           repo: ${{ env.ECR_REPO }}
-          region: ${{ secrets.AWS_REGION }}
+          region: ${{ env.ECR_REGION }}
           tags: latest, ${{ github.run_number }}
           daemon_off: false
           dockerfile: ./Dockerfile

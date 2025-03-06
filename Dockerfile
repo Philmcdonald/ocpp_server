@@ -10,7 +10,7 @@ RUN npm install --legacy-peer-deps
 
 COPY . .
 
-COPY .env /app/.env
+COPY ocpp.env /app/.env
 
 RUN npm run build
 

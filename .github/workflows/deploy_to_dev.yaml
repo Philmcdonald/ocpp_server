@@ -9,40 +9,61 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Setup and build the project
-      run: |
-        npm install
-        npm run build
+      - name: Retrieving key and connect to remote server
+        env:
+          key_file_path: "${{ vars.PRIVATE_KEY_DIR }}/${{ secrets.DEV_PRIVATE_KEY_NAME }}"
+        run: |
+          mkdir -p ~/.ssh
+          aws s3 cp s3://${{ vars.DEV_S3_BUCKET_NAME }}/$key_file_path ~/.ssh/server_key
+          sudo chmod 600 ~/.ssh/server_key
+          ssh-keyscan -H ${{ secrets.DEV_SERVER_DNS }} >> ~/.ssh/known_hosts
 
-    - name: Deploy with rsync from dist to the remote server
-      uses: burnett01/rsync-deployments@7.0.0
-      with:
-        switches: --mkpath --rsync-path="sudo rsync" --delete -avzr
-        path: /
-        remote_path: /home/ubuntu/ocpp_server
-        remote_host: ${{ secrets.DEV_SERVER_DNS }}
-        remote_user: ubuntu
-        remote_key: ${{secrets.PRIVATE_ACCESS_KEY}}
+      - name: Deploy with rsync from dist to the remote server
+        uses: burnett01/rsync-deployments@7.0.0
+        with:
+          switches: --mkpath --rsync-path="sudo rsync" --delete -avzr
+          path: /
+          remote_path: /home/ubuntu/ocpp_server
+          remote_host: ${{ secrets.DEV_SERVER_DNS }}
+          remote_user: ubuntu
+          remote_key: ${{secrets.DEV_PRIVATE_ACCESS_KEY}}
 
 
-    - name: Setup and build the project
-      run: |
-        ssh -i ~/.ssh/server_key ubuntu@${{ secrets.DEV_SERVER_DNS }} << 'EOF'
-        sudo chown -R ubuntu:ubuntu /home/ubuntu/ocpp_server
+      - name: Setup and build the project
+        run: |
+          ssh -i ~/.ssh/server_key ubuntu@${{ secrets.DEV_SERVER_DNS }} << 'EOF'
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/ocpp_server
 
-        # spin-up nginx
-        sudo nginx -t
-        sudo systemctl restart nginx
-        EOF
+          # set a variable
+          COMPOSE_FILE="docker-compose.yaml"
+
+          # spin up docker
+          # Check if any containers from the compose file are running
+          if docker-compose -f $COMPOSE_FILE ps | grep "Up"; then
+            echo "Containers are already running. Restarting..."
+            docker-compose -f $COMPOSE_FILE restart
+          else
+            echo "Containers are not running. Starting up..."
+            # sudo docker-compose -f $COMPOSE_FILE down
+            docker-compose -f $COMPOSE_FILE up -d
+          fi
+
+          # for logging purposes
+          sudo docker-compose -f $COMPOSE_FILE logs -f --timestamps > docker-compose.log 2>&1 &
+
+          # spin-up nginx
+          sudo nginx -t
+          sudo systemctl restart nginx
+          EOF

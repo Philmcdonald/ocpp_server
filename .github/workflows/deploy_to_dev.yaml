@@ -61,7 +61,7 @@ jobs:
           fi
 
           # for logging purposes
-          sudo docker-compose -f $COMPOSE_FILE logs -f --timestamps > docker-compose.log 2>&1 &
+          sudo docker-compose -f $COMPOSE_FILE logs -f --timestamps > logs/docker-compose.log 2>&1 &
 
           # spin-up nginx
           sudo nginx -t

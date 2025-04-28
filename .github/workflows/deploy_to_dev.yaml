@@ -7,7 +7,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,13 +51,13 @@ jobs:
 
           # spin up docker
           # Check if any containers from the compose file are running
-          if docker-compose -f $COMPOSE_FILE ps | grep "Up"; then
+          if sudo docker-compose -f $COMPOSE_FILE ps | grep "Up"; then
             echo "Containers are already running. Restarting..."
-            docker-compose -f $COMPOSE_FILE restart
+            sudo docker-compose -f $COMPOSE_FILE restart
           else
             echo "Containers are not running. Starting up..."
             # sudo docker-compose -f $COMPOSE_FILE down
-            docker-compose -f $COMPOSE_FILE up -d
+            sudo docker-compose -f $COMPOSE_FILE up -d
           fi
 
           # for logging purposes

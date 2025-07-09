@@ -15,9 +15,26 @@ import { createRouteMap, RouteConfig } from './ocpp/routing.js';
 import { routes } from './ocpp-routes.js';
 import { RabbitMQService } from './pubsub/RabbitMQService.js';
 import { redisService } from './pubsub/RedisService.js';
+import DatabaseSyncService from './services/DatabaseSyncService.js';
+import winston from 'winston';
 
 import dotenv from 'dotenv'
 dotenv.config()
+
+// Setup logger
+const logger = winston.createLogger({
+  level: 'debug',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message, ...meta }) => {
+      return `${timestamp} [${level.toUpperCase()}] ${message} ${Object.keys(meta).length ? JSON.stringify(meta) : ''}`;
+    })
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'ocpp-server.log' })
+  ]
+});
 
 
 const PORT = process.env.PORT || 8080
@@ -28,6 +45,7 @@ class OCPPServer {
   public readonly status: 'Ready' | 'Booting' = 'Booting';
   private rabbitMQ: RabbitMQService;
   private clientSockets = new Map<string, WebSocket>(); // Store WebSocket instances in memory
+  private dbSyncService: DatabaseSyncService;
 
   constructor(server: any) {
     this.wss = new WebSocketServer({ server });
@@ -39,6 +57,10 @@ class OCPPServer {
 
     this.rabbitMQ = new RabbitMQService(this.clientSockets);
     this.rabbitMQ.connect();
+    
+    // Initialize database sync service
+    this.dbSyncService = new DatabaseSyncService(logger);
+    this.startDatabaseSync();
   }
 
   public async sendToClient(clientId: string, message: Call | CallResult | CallError): Promise<void> {
@@ -103,9 +125,32 @@ class OCPPServer {
       const message = unpack(data.toString());
       if (message instanceof Call) {
         await redisService.logOCPPEvent(clientId, 'REQUEST', message);
-        if (message.action === 'StatusNotification') {
-          await this.updateConnectorStatus(clientId, message.payload, message.uniqueId);
+        
+        // Handle specific OCPP events for database sync
+        switch (message.action) {
+          case 'StatusNotification':
+            await this.updateConnectorStatus(clientId, message.payload, message.uniqueId);
+            await this.dbSyncService.handleStatusNotification(
+              clientId, 
+              message.payload.status
+            );
+            break;
+          case 'StartTransaction':
+            await this.dbSyncService.handleSessionStart(
+              clientId,
+              message.payload.connectorId,
+              message.payload
+            );
+            break;
+          case 'StopTransaction':
+            await this.dbSyncService.handleSessionStop(
+              clientId,
+              message.payload.connectorId || '1', // Default to connector 1 if not specified
+              message.payload
+            );
+            break;
         }
+        
         await this.handleCall(clientId, message);
       } else if (message instanceof CallResult || message instanceof CallError) {
         await redisService.logOCPPEvent(clientId, 'RESPONSE', message);
@@ -167,6 +212,26 @@ class OCPPServer {
     this.clientSockets.delete(clientId); // Remove WebSocket from memory
     await redisService.removeClient(clientId);
     console.log(`Client disconnected: ${clientId}`);
+  }
+  
+  // Start database synchronization service
+  private async startDatabaseSync(): Promise<void> {
+    try {
+      await this.dbSyncService.startSync();
+      logger.info('✅ Database sync service started successfully');
+    } catch (error) {
+      logger.error('❌ Failed to start database sync service:', error);
+    }
+  }
+  
+  // Stop database synchronization service
+  async stopDatabaseSync(): Promise<void> {
+    try {
+      await this.dbSyncService.stopSync();
+      logger.info('✅ Database sync service stopped');
+    } catch (error) {
+      logger.error('❌ Failed to stop database sync service:', error);
+    }
   }
 }
 

@@ -1,0 +1,682 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["typedSql"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Models
+model User {
+  id             String         @id @default(uuid())
+  fullName       String
+  email          String         @unique
+  password       String
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization?  @relation("OrgUser", fields: [organizationId], references: [id])
+  organizationId String?
+  wallet         Wallet?        @relation
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  reports        Report[]
+
+  reservation Reservation[]
+  faultReport FaultReport[]
+
+  // Relations
+  roles          UserRole[]
+  profiles       UserProfile[]
+  transactions   Transaction[]
+  walletTransactions   WalletTransaction[]
+  payments       Payment[]
+  chargeSessions ChargeSession[]
+
+  // New Field for Metrics
+  totalKwhPurchased Decimal @default(0.0) // Tracks cumulative kWh purchases
+
+  //location  
+  location Location[]
+
+  // New field for managed station (single station)
+  managedStation Station? @relation("StationManager")
+
+
+  refreshTokens RefreshToken[]
+}
+
+model OTPVerification {
+  id           String    @id @default(uuid())
+  email        String
+  otp          String
+  expiresAt    DateTime
+  verified     Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Sms {
+  id         String    @id @default(uuid())
+  companyId  String?
+  from       String
+  to         String
+  body       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+}
+
+model UserProfile {
+  id          String @id @default(uuid())
+  userId      String
+  roleId      String
+  profileData Json? // Stores role-specific details (e.g., Org ID for OrgAdmin, extra metadata)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId]) // Ensures one profile per user-role combination
+}
+
+model Permission {
+  id    String @id @default(uuid())
+  name  String // e.g., "view_financials", "manage_users"
+  roles Role[] @relation("rolePermissions")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String  @unique // e.g., AppUser, OrgAdmin, PlatformAdmin
+  description String?
+
+  // Relations
+  userRoles   UserRole[]
+  profiles    UserProfile[]
+  permissions Permission[]  @relation("rolePermissions")
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  roleId String
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+}
+
+model Organization {
+  id         String    @id @default(uuid())
+  identifier String    @unique @default(uuid())
+  slugstr    String    @unique
+  name       String    @unique
+  email      String    @unique
+  phone      String?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  users      User[]    @relation("OrgUser")
+  stations   Station[]
+
+  pricingPolicy PricingPolicy[]
+
+  chargePoint ChargePoint[]
+
+  transaction Transaction[]
+  walletTransactions   WalletTransaction[]
+  reports     Report[]
+
+  wallet   OrganizationWallet? @relation(fields: [walletId], references: [id])
+  walletId String?             @unique
+
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId String?
+
+  // Settings
+  settings OrganizationSettings?
+}
+
+model Station {
+  id             String        @id @default(uuid())
+  identifier     String        @unique @default(uuid())
+  name           String
+  isActive       Boolean       @default(false)
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  chargePoints   ChargePoint[] // A station can have multiple charge points
+  reservations   Reservation[] // Reservations associated with the station
+  closingTime    String?
+
+  chargeSessions ChargeSession[] // Charge sessions at the station
+  images   Image[]  // one-to-many relation (Station has many Images)
+
+  // Add computed metrics
+  totalEarnings Decimal @default(0.0)
+  usageCount    Int     @default(0)
+
+  Transaction Transaction[]
+
+  location   Location @relation(fields: [locationId], references: [id])
+  locationId String   @unique
+
+  deletedAt DateTime?
+
+  stationManager   User?   @relation("StationManager", fields: [stationManagerId], references: [id])
+  stationManagerId String? @unique
+}
+
+model ChargePoint {
+  id             String             @id @default(uuid())
+  identifier     String             @unique @default(uuid())
+  uniqueId       String             @default(uuid())
+  stationId      String
+  station        Station            @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  brand          String
+  type           String
+  lastSeen       String
+  serialNumber   String
+  status         ChargePointStatus?
+  faultReports   FaultReport[]
+  reservation    Reservation[]
+  chargeSessions ChargeSession[]
+  organization   Organization?      @relation(fields: [organizationId], references: [id])
+  organizationId String?
+  totalEarnings  Decimal            @default(0.0)
+  usageCount     Int                @default(0)
+  Transaction    Transaction[]
+  location       Location           @relation(fields: [locationId], references: [id])
+  locationId     String             @unique
+  pricingPolicy  PricingPolicy[]
+  connectors     Connector[]
+  images   Image[]  // one-to-many relation (Station has many Images)
+
+  powerRating Float
+  createdAt   DateTime? @default(now())
+  deletedAt   DateTime?
+}
+
+
+
+model Connector {
+  id            String         @id @default(uuid())
+  uniqueId      String
+  type          ConnectorType? @relation(fields: [typeId], references: [id])
+  typeId        String?
+  status        ChargePointStatus?
+  chargePointId String
+  chargePoint   ChargePoint    @relation(fields: [chargePointId], references: [id], onDelete: Cascade)
+}
+
+model ConnectorType {
+  id        String      @id @default(uuid())
+  name      String
+  output    String
+  model     String
+  brand     String
+  connector Connector[]
+  info      String?
+}
+ 
+enum ChargePointStatus {
+  AVAILABLE
+  OCCUPIED
+  OUT_OF_ORDER
+  UNLINKED
+  RESERVED
+}
+
+model Wallet {
+  id           String        @id @default(uuid())
+  userId       String        @unique
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance      Decimal       @default(0.00)
+  transactions Transaction[]
+  walletTransactions WalletTransaction[]
+}
+
+model OrganizationWallet {
+  id             String        @id @default(uuid())
+  organizationId String        @unique
+  currency       String
+  organization   Organization?
+  balance        Decimal       @default(0.00)
+  transactions   Transaction[]       // Transactions associated with the organization
+  payouts        Payout[]            // Payout requests
+  walletTransactions WalletTransaction[]
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+model Reservation {
+  id            String            @id @default(uuid())
+  chargePointId String
+  chargePoint   ChargePoint       @relation(fields: [chargePointId], references: [id])
+  userId        String
+  user          User              @relation(fields: [userId], references: [id])
+  startTime     DateTime
+  endTime       DateTime
+  status        ReservationStatus
+
+  station Station[]
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model FaultReport {
+  id            String      @id @default(uuid())
+  chargePointId String
+  chargePoint   ChargePoint @relation(fields: [chargePointId], references: [id])
+  reportedById  String
+  user          User        @relation(fields: [reportedById], references: [id])
+  description   String
+  createdAt     DateTime    @default(now())
+  resolvedAt    DateTime?
+}
+
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  message        String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  type           String?
+  data           String? // JSON stringified data
+  sent           Boolean  @default(false)
+  organizationId String?
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  createdAt DateTime @default(now())
+}
+
+model PricingPolicy {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  pricePerKWh    Decimal
+  pricePerMinute Decimal?
+  currency       String
+  startTime      DateTime
+  endTime        DateTime
+  isActive       Boolean      @default(true)
+
+  chargePoint ChargePoint[]
+  createdAt   DateTime      @default(now())
+}
+
+model PaymentIntegration {
+  id        String   @id @default(uuid())
+  provider  String
+  apiKey    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id            String          @id @default(uuid())
+  userId        String // User who made the transaction
+  user          User            @relation(fields: [userId], references: [id])
+  paymentId     String? // Links to Payment if applicable
+  payment       Payment?        @relation(fields: [paymentId], references: [id])
+  amount        Decimal
+  type          TransactionType // CREDIT or DEBIT
+  paymentMethod PaymentMethod // WALLET or DIRECT
+  description   String? // Optional description for the transaction
+  createdAt     DateTime        @default(now())
+  reference     String? // Unique reference for the transaction (e.g., from Paystack)
+  paymentLink   String? // Payment Link from paystack
+
+  organizationId String?
+  stationId      String?
+  chargePointId  String?
+
+  wallet Wallet[]
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  station      Station?      @relation(fields: [stationId], references: [id])
+  chargePoint  ChargePoint?  @relation(fields: [chargePointId], references: [id])
+
+  organizationWallet OrganizationWallet[]
+}
+
+enum PaymentMethod {
+  WALLET
+  DIRECT
+}
+
+model Payment {
+  id                  String          @id @default(uuid())
+  userId              String // User making the payment
+  user                User            @relation(fields: [userId], references: [id])
+  amount              Decimal
+  status              PaymentStatus // Status of the payment
+  paymentType         PaymentType // Type of the payment (e.g., reservation, subscription, etc.)
+  transactions        Transaction[] // Transactions associated with this payment
+  createdAt           DateTime        @default(now())
+  chargeSessions      ChargeSession[]
+  paymentMethod       PaymentMethod
+  organizationId      String? // Tracks the organization that owns the charge point
+  stationId           String? // Tracks the station where the session occurred
+  chargePointId       String? // Tracks the charge point used
+  platformFee         Decimal? // Fee taken by the platform
+  organizationRevenue Decimal? // Revenue for the organization
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentType {
+  RESERVATION
+  SUBSCRIPTION
+  TOPUP
+  ONE_TIME
+}
+
+model ChargeSession {
+  id                String              @id @default(uuid())
+  userId            String // User initiating the session
+  user              User                @relation(fields: [userId], references: [id])
+  stationId         String // Station where the charge occurs
+  station           Station             @relation(fields: [stationId], references: [id])
+  chargePointId     String // Specific charge point being used
+  chargePoint       ChargePoint         @relation(fields: [chargePointId], references: [id])
+  paymentId         String? // Payment made for this session
+  payment           Payment?            @relation(fields: [paymentId], references: [id])
+  chargeType        ChargeType // Full charge, by duration, or by price
+  amountPaid        Decimal // Amount paid for the session
+  startTime         DateTime? // When charging starts
+  endTime           DateTime? // When charging ends
+  status            ChargeSessionStatus @default(PENDING) // Tracks session status
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  connectorId       String
+  ocppTransactionId String? // Transaction ID from OCPP
+  meterStart        Float?  // Starting meter value in Wh
+  meterStop         Float?  // Ending meter value in Wh
+  currentPower      Float?  // Current power in kW
+  totalConsumption  Float?  // Total energy consumed in kWh
+  lastMeterTimestamp DateTime? // Last time meter values were updated
+  paymentConfirmedAt DateTime? // When payment was confirmed
+  stopReason        String? // Reason for stopping the session
+  meterValues       MeterValue[] // Collected meter values during session
+}
+
+model MeterValue {
+  id              String        @id @default(uuid())
+  chargeSessionId String
+  chargeSession   ChargeSession @relation(fields: [chargeSessionId], references: [id], onDelete: Cascade)
+  timestamp       DateTime      @default(now())
+  power           Float?        // Power in kW
+  energy          Float?        // Energy in kWh
+  voltage         Float?        // Voltage in V
+  current         Float?        // Current in A
+  metadata        Json?         // Additional meter data
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  latitude  Float
+  longitude Float
+  address   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String?
+
+  station     Station?
+  chargePoint ChargePoint?
+
+  organization Organization[]
+}
+
+enum ChargeType {
+  FULL_CHARGE
+  BY_DURATION
+  BY_PRICE
+}
+
+enum ChargeSessionStatus {
+  PENDING // Waiting to start
+  ONGOING // Charging in progress
+  COMPLETED // Charging successfully completed
+  TERMINATED // Charging stopped prematurely
+}
+
+model AnalyticsSummary {
+  id           String   @id @default(uuid())
+  type         String // e.g., "station", "organization"
+  entityId     String // ID of the entity (station/org/charge point)
+  metricName   String
+  metricValue  Decimal
+  lastComputed DateTime @default(now())
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model SystemAlert {
+  id         String        @id @default(uuid())
+  component  String
+  severity   AlertSeverity @default(MEDIUM)
+  message    String
+  details    String // JSON stringified details
+  resolved   Boolean       @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Payout {
+  id             String       @id @default(uuid())
+  organizationId String
+  amount         Decimal
+  currency       String
+  bankName       String?
+  accountNumber  String?
+  accountName    String?
+  reference      String?      @unique // Reference number for tracking the payout
+  status         PayoutStatus @default(PENDING)
+  statusMessage  String? // For error messages or status updates
+  requestedAt    DateTime     @default(now())
+  processedAt    DateTime? // When the payout was processed
+  metadata       Json? // Additional payout information
+
+  organizationWallet OrganizationWallet @relation(fields: [organizationId], references: [organizationId])
+}
+
+enum ReportType {
+  TRANSACTIONS
+  REVENUE
+  CHARGING_SESSIONS
+  STATION_PERFORMANCE
+  ORGANIZATION_OVERVIEW
+  CUSTOM
+}
+
+enum ReportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReportFormat {
+  CSV
+  XLSX
+  PDF
+}
+
+model Report {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  type           ReportType
+  format         ReportFormat @default(CSV)
+  requesterId    String
+  requester      User         @relation(fields: [requesterId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  parameters     Json? // Stores filtering parameters
+  status         ReportStatus @default(PENDING)
+  statusMessage  String? // For error messages or processing updates
+  fileUrl        String? // URL to download the generated report file
+  scheduledFor   DateTime? // For scheduled reports
+  recurring      Boolean      @default(false) // Whether this is a recurring report
+  recurringCron  String? // Cron expression for recurring reports
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+}
+
+model OrganizationSettings {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // General Settings
+  logoUrl        String?
+  primaryColor   String? // Hex color code
+  secondaryColor String? // Hex color code
+  website        String?
+
+  // Payment Settings
+  paymentApiKey          String?
+  paymentSecretKey       String?
+  defaultCurrency        String?  @default("NGN")
+  platformFeePercentage  Float?   @default(5.0)
+  automaticPayoutEnabled Boolean? @default(false)
+  payoutThreshold        Float?   @default(10000.0)
+  bankName               String?
+  accountNumber          String?
+  accountName            String?
+
+  // Notification Settings
+  emailNotificationsEnabled  Boolean? @default(true)
+  smsNotificationsEnabled    Boolean? @default(false)
+  pushNotificationsEnabled   Boolean? @default(true)
+  notificationEmail          String?
+  notificationPhone          String?
+  newSessionNotification     Boolean? @default(true)
+  newTransactionNotification Boolean? @default(true)
+  faultReportNotification    Boolean? @default(true)
+
+  // Integration Settings
+  apiKey            String?
+  sessionWebhookUrl String?
+  paymentWebhookUrl String?
+  googleMapsApiKey  String?
+  dataSharing       Boolean? @default(false)
+  oauthClientId     String?
+  oauthClientSecret String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Image {
+  id         String   @id @default(uuid())
+  url        String
+  altText    String?
+  createdAt  DateTime @default(now())
+
+  // Foreign keys with cascading deletes
+  stationId      String? 
+  chargePointId  String?
+
+  // Relations with onDelete cascade
+  station     Station?     @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  chargePoint ChargePoint? @relation(fields: [chargePointId], references: [id], onDelete: Cascade)
+}
+
+
+model WalletTransaction {
+  id                String             @id @default(uuid())
+  type              TransactionType
+  narration         String
+  amount            Decimal            @db.Decimal(20, 2)
+  balanceBefore     Decimal            @db.Decimal(20, 2)
+  balanceAfter      Decimal            @db.Decimal(20, 2)
+  status            TransactionStatus  @default(PENDING)
+  reference         String             @unique @default(uuid())
+
+  walletType        WalletType
+
+  walletId            String?
+  wallet              Wallet?             @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  userId            String?
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationWalletId String?
+  organizationWallet   OrganizationWallet? @relation(fields: [organizationWalletId], references: [id], onDelete: Cascade)
+
+  organizationId    String?
+  organization      Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+enum WalletType {
+  USER
+  ORGANIZATION
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}

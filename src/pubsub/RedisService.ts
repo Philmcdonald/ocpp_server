@@ -77,6 +77,106 @@ class RedisService {
       if (ch === channel) callback(JSON.parse(message));
     });
   }
+
+  /** Clear all events for a specific charger after session completion */
+  async clearChargerEvents(chargerId: string): Promise<void> {
+    try {
+      const eventKey = `ocpp:events:${chargerId}`;
+      const deleted = await this.redis.del(eventKey);
+      
+      if (deleted > 0) {
+        console.log(`Cleared ${deleted} event logs for charger ${chargerId}`);
+      }
+      
+      // Also clear any session context keys for this charger
+      const contextKeys = await this.redis.keys(`session:context:${chargerId}:*`);
+      if (contextKeys.length > 0) {
+        await this.redis.del(...contextKeys);
+        console.log(`Cleared ${contextKeys.length} session context keys for charger ${chargerId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to clear events for charger ${chargerId}:`, error);
+    }
+  }
+
+  /** Clear events older than specified time for all chargers */
+  async clearStaleEvents(maxAgeHours: number = 24): Promise<void> {
+    try {
+      const keys = await this.redis.keys('ocpp:events:*');
+      const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+      
+      for (const key of keys) {
+        const events = await this.redis.lrange(key, 0, -1);
+        const validEvents = [];
+        
+        for (const eventStr of events) {
+          try {
+            const event = JSON.parse(eventStr);
+            const eventTime = new Date(event.timestamp);
+            
+            if (eventTime > cutoffTime) {
+              validEvents.push(eventStr);
+            }
+          } catch {
+            // Skip malformed events
+            continue;
+          }
+        }
+        
+        // Replace the list with only valid events
+        await this.redis.del(key);
+        if (validEvents.length > 0) {
+          await this.redis.rpush(key, ...validEvents);
+        }
+      }
+      
+      console.log(`Cleared stale events older than ${maxAgeHours} hours from ${keys.length} chargers`);
+    } catch (error) {
+      console.error('Failed to clear stale events:', error);
+    }
+  }
+
+  /** Check if charger has been active recently */
+  async isChargerActive(chargerId: string, maxInactiveMinutes: number = 30): Promise<boolean> {
+    try {
+      const lastEvent = await this.redis.lindex(`ocpp:events:${chargerId}`, -1);
+      if (!lastEvent) return false;
+      
+      const event = JSON.parse(lastEvent);
+      const lastEventTime = new Date(event.timestamp);
+      const cutoffTime = new Date(Date.now() - maxInactiveMinutes * 60 * 1000);
+      
+      return lastEventTime > cutoffTime;
+    } catch (error) {
+      console.error(`Failed to check if charger ${chargerId} is active:`, error);
+      return false;
+    }
+  }
+
+  /** Get events for a specific client by event name */
+  async getEventsByClientAndEventName(clientId: string, eventName: string) {
+    try {
+      const events = await this.redis.lrange(`ocpp:events:${clientId}`, 0, -1);
+      return events
+        .map(event => JSON.parse(event))
+        .filter(event => event.data?.action === eventName)
+        .map(event => ({ ...event, clientId }));
+    } catch (error) {
+      console.error(`Failed to get events for ${clientId}:`, error);
+      return [];
+    }
+  }
+
+  /** Get last event for a specific client by event name */
+  async getLastEventByClientAndEventName(clientId: string, eventName: string) {
+    try {
+      const events = await this.getEventsByClientAndEventName(clientId, eventName);
+      return events.length > 0 ? events[events.length - 1] : null;
+    } catch (error) {
+      console.error(`Failed to get last event for ${clientId}:`, error);
+      return null;
+    }
+  }
 }
 
 export const redisService = new RedisService();

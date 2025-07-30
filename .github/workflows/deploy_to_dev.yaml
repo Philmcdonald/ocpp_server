@@ -49,16 +49,10 @@ jobs:
           # set a variable
           COMPOSE_FILE="docker-compose.yaml"
 
-          # spin up docker
-          # Check if any containers from the compose file are running
-          if sudo docker-compose -f $COMPOSE_FILE ps | grep "Up"; then
+          # if sudo docker-compose -f $COMPOSE_FILE ps | grep "Up"; then
             echo "Containers are already running. Restarting..."
-            sudo docker-compose -f $COMPOSE_FILE restart
-          else
-            echo "Containers are not running. Starting up..."
-            # sudo docker-compose -f $COMPOSE_FILE down
+            sudo docker-compose -f $COMPOSE_FILE down
             sudo docker-compose -f $COMPOSE_FILE up -d
-          fi
 
           # for logging purposes
           sudo docker-compose -f $COMPOSE_FILE logs -f --timestamps > logs/docker-compose.log 2>&1 &

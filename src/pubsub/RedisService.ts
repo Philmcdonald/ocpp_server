@@ -46,7 +46,12 @@ class RedisService {
   async getAllClients() {
     const keys = await this.redis.keys('ocpp:clients:*');
     const clients = await Promise.all(keys.map((key) => this.redis.get(key)));
-    return clients.map((client) => JSON.parse(client));
+    return clients.map((client, index) => {
+      const parsedClient = JSON.parse(client);
+      // Extract clientId from the Redis key (format: 'ocpp:clients:clientId')
+      const clientId = keys[index].replace('ocpp:clients:', '');
+      return { ...parsedClient, clientId };
+    });
   }
 
   /** Log OCPP Requests & Responses */

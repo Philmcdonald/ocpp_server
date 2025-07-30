@@ -110,8 +110,20 @@ class OCPPServer {
     this.clientSockets.set(clientId, ws);
 
     console.log("Before Redis await")
-    // Save client info to Redis without ws
-    await redisService.saveClientInfo(clientId, { chargePointModel: '', chargePointVendor: '', connectors: [] });
+    // Retrieve existing client info to preserve connector data
+    const existingClientInfo = await redisService.getClientInfo(clientId);
+    
+    // Merge existing data with new connection, preserving connectors if they exist
+    const clientData = {
+      clientId, // Include clientId in the data structure
+      chargePointModel: existingClientInfo?.chargePointModel || '',
+      chargePointVendor: existingClientInfo?.chargePointVendor || '',
+      connectors: existingClientInfo?.connectors || [], // Preserve existing connectors
+      lastConnected: new Date().toISOString()
+    };
+    
+    // Save client info to Redis
+    await redisService.saveClientInfo(clientId, clientData);
     const clients = await redisService.getAllClients()
     console.log(clients)
 

@@ -29,7 +29,7 @@ jobs:
           aws s3 cp s3://${{ vars.DEV_S3_BUCKET_NAME }}/$key_file_path ~/.ssh/server_key
           sudo chmod 600 ~/.ssh/server_key
           # ssh-keyscan -H ${{ secrets.DEV_SERVER_DNS }} >> ~/.ssh/known_hosts
-           echo -e "Host ${{ secrets.DEV_SERVER_DNS }}\n  User ubuntu\n  IdentityFile ~/.ssh/server_key\n  StrictHostKeyChecking accept-new" >> ~/.ssh/config
+          echo -e "Host ${{ secrets.DEV_SERVER_DNS }}\n  User ubuntu\n  IdentityFile ~/.ssh/server_key\n  StrictHostKeyChecking accept-new" >> ~/.ssh/config
 
       - name: Deploy with rsync from dist to the remote server
         uses: burnett01/rsync-deployments@7.0.0
